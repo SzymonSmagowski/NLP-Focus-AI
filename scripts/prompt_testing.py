@@ -17,15 +17,24 @@ logger = logging.getLogger(__name__)
 class PromptTester:
     def __init__(self, api_key):
         self.api_key = api_key
-        self.models = ['gpt-4-mini', 'gpt-3.5-turbo']
+        self.models = ['gpt-4o-mini', 'gpt-3.5-turbo']
         self.prompts = {
-            'chain_of_thought': """Let's analyze this step by step:
+            'chain_of_thought_few_shot': """Let's analyze this step by step:
             1. Understand the user's learning objective: '{label}'
             2. Examine the page content: {content}
             3. Identify key educational concepts in the content
             4. Check if these concepts align with the user's learning goal
             5. Consider whether this content would help achieve the learning objective
             6. Evaluate if the content is worth the user's time and attention
+            
+            Here are some examples of matching content to learning objectives:
+            User's Goal: "Learn Python Programming"
+            Content: "A comprehensive guide to Python functions, loops, and data structures..."
+            Answer: True (Content directly supports learning objective)
+
+            User's Goal: "Study World War II"
+            Content: "Top 10 recipes for chocolate chip cookies..."
+            Answer: False (Content would distract from learning objective)
             
             Based on this analysis, output only 'True' if the content is relevant to the user's learning goal, or 'False' if it would be a distraction.""",
             

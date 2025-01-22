@@ -5,10 +5,69 @@ from langchain_openai import ChatOpenAI
 import logging
 import html2text
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from langgraph.graph import START, MessagesState, StateGraph, END
+from langchain_core.messages import HumanMessage
+import os
+
+class LLMWorkflow:
+    def call_model(self, state: MessagesState):
+        """Call the model with the current state."""
+        messages = state["messages"]
+
+        response = self.model.invoke(messages)
+        return {"messages": [response]}
+
+    def get_workflow(self):
+        # Create workflow graph
+        workflow = StateGraph(MessagesState)
+
+        # Define nodes
+        workflow.add_node("agent", self.call_model)
+
+        # Set entry point
+        workflow.add_edge(START, "agent")
+
+        workflow.add_edge("agent", END)
+
+        return workflow
+
+    def __init__(self, settings):
+        os.environ["LANGCHAIN_API_KEY"] = settings.LANGCHAIN_API_KEY
+        os.environ["LANGCHAIN_TRACING_V2"] = settings.LANGCHAIN_TRACING_V2
+        os.environ["LANGCHAIN_PROJECT"] = settings.LANGCHAIN_PROJECT
+        self.settings = settings
+        
+        self.model = ChatOpenAI(
+            model_name=settings.OPENAI_MODEL,
+            api_key=settings.OPENAI_API_KEY
+        )
+
+        self.workflow = self.get_workflow()
+        self.app = self.workflow.compile()
+    
+    def run(self, message: str):
+        """Run the workflow with a message"""
+        try:
+            last_event = None
+            for event in self.app.stream(
+                {"messages": [HumanMessage(content=message)]},
+                stream_mode="values"
+            ):
+                event["messages"][-1].pretty_print()
+                last_event = event
+
+            return last_event["messages"][-1].content if last_event else None
+        except Exception as e:
+            print(f"Error in arun: {str(e)}")
+            raise
+
 
 class Settings(BaseSettings):
-    CRITIC_LLM: str
+    OPENAI_MODEL: str
     OPENAI_API_KEY: str
+    LANGCHAIN_API_KEY: str
+    LANGCHAIN_TRACING_V2: str
+    LANGCHAIN_PROJECT: str
     model_config = SettingsConfigDict(
             env_file='.env',
             env_file_encoding='utf-8',
@@ -25,14 +84,8 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
-# Initialize OpenAI client
-logger.info("Initializing Langchain OpenAI client")
-model = ChatOpenAI(
-    model_name="gpt-3.5-turbo",
-    api_key=settings.OPENAI_API_KEY
-)
+llm_workflow = LLMWorkflow(settings)
 
-print(settings.OPENAI_API_KEY)
 
 # Add CORS middleware configuration
 logger.info("Configuring CORS middleware")
@@ -63,23 +116,20 @@ async def validate_webpage(request: WebpageRequest):
         # Get first 3000 characters
         truncated_text = markdown_text[:3000]
         
-        prompt = f"""As an expert educational content curator with years of experience in personalized learning:
-            Your task is to determine if this content would benefit a user who wants to: '{request.topic}'
+        prompt = f"""Let's evaluate the learning opportunity:
+            1. What is the user trying to learn or achieve? ('{request.topic}')
+            2. What knowledge does this content provide?
+            3. Would engaging with this content advance the user's goal?
+            4. Could this content distract from the learning objective?
+            5. Is this the right time to engage with this content?
 
-            Consider:
-            1. The educational value of the content
-            2. Relevance to the user's learning objective
-            3. Potential for knowledge advancement
+            If the content is a privacy information, output 'True'.
+            After considering these points, output only 'True' if the user should engage with this content, or 'False' if they should skip it.
             
-            Content to evaluate: {truncated_text}
-            
-            Based on your expertise, output only 'True' if the content supports the learning goal, or 'False' if it's a distraction."""
+            Content to analyze: {truncated_text}"""
         
         logger.info("Sending request to OpenAI API")
-        response = model.invoke(
-            input=prompt
-        )
-        response_text = response.content.strip()
+        response_text = llm_workflow.run(prompt)
         logger.info(f"Received response from OpenAI: {response_text}")
         
         # Return False if contains FALSE, otherwise True
