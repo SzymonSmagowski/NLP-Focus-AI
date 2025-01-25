@@ -5,6 +5,12 @@ import logging
 from datetime import datetime
 from tqdm import tqdm
 from pydantic_settings import BaseSettings, SettingsConfigDict
+import random
+import numpy as np
+
+# Set fixed seeds for reproducibility
+random.seed(42)
+np.random.seed(42)
 
 # Set up logging
 logging.basicConfig(
@@ -15,8 +21,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class PromptTester:
-    def __init__(self, api_key):
+    def __init__(self, api_key, seed=42):
         self.api_key = api_key
+        self.seed = seed
         self.models = ['gpt-4o-mini', 'gpt-3.5-turbo']
         self.prompts = {
             'chain_of_thought_few_shot': """Let's analyze this step by step:
@@ -108,9 +115,10 @@ class PromptTester:
         for attempt in range(max_retries):
             try:
                 model = ChatOpenAI(
-                    temperature=0.7,
+                    temperature=0.0,
                     model_name=model,
-                    api_key=self.api_key
+                    api_key=self.api_key,
+                    seed=self.seed
                 )
                 response = model.invoke(
                     input=prompt,

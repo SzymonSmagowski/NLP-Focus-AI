@@ -2,6 +2,9 @@ import pandas as pd
 import ast
 import random
 
+# Set random seed for reproducibility
+random.seed(42)
+
 # Read the original CSV file
 df = pd.read_csv('processed-data/labeled_files.csv')
 

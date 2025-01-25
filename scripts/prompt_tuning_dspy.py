@@ -8,6 +8,13 @@ import os
 import logging
 from datetime import datetime
 from pydantic_settings import BaseSettings, SettingsConfigDict
+import random
+import numpy as np
+
+# Set fixed seeds for reproducibility
+SEED = 42
+random.seed(SEED)
+np.random.seed(SEED)
 
 # Set up logging
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -31,8 +38,9 @@ class Output:
     reasoning: str = ""
 
 class BrainrotDataset(Dataset):
-    def __init__(self, data: pd.DataFrame):
+    def __init__(self, data: pd.DataFrame, seed: int = SEED):
         self.data = data
+        self.rng = np.random.RandomState(seed)
     
     def __getitem__(self, idx):
         row = self.data.iloc[idx]
@@ -42,8 +50,9 @@ class BrainrotDataset(Dataset):
         return len(self.data)
 
 class ChainOfThoughtFewShotClassifier(dspy.Module):
-    def __init__(self):
+    def __init__(self, seed: int = SEED):
         super().__init__()
+        self.seed = seed
         self.predictor = dspy.Predict("label, content -> classification")
         self.predictor.instructions = """Analyze if webpage content matches the user's learning goal.
         Output ONLY 'True' if the content directly supports or relates to the learning goal.
@@ -72,8 +81,9 @@ class ChainOfThoughtFewShotClassifier(dspy.Module):
         return Output(classification=result.classification, reasoning=result.reasoning)
 
 class FewShotClassifier(dspy.Module):
-    def __init__(self):
+    def __init__(self, seed: int = SEED):
         super().__init__()
+        self.seed = seed
         self.predictor = dspy.Predict("""Determine if content matches learning goal.
                                       Return True if content supports learning, False if it's a distraction.""")
     
@@ -91,8 +101,9 @@ class FewShotClassifier(dspy.Module):
         return Output(classification=result.classification)
 
 class RolePromptingClassifier(dspy.Module):
-    def __init__(self):
+    def __init__(self, seed: int = SEED):
         super().__init__()
+        self.seed = seed
         self.predictor = dspy.Predict("""As an expert educational content curator,
         evaluate if content supports learning objective.
         Return True if content supports learning, False if it's a distraction.""")
@@ -107,8 +118,9 @@ class RolePromptingClassifier(dspy.Module):
         return Output(classification=result.classification, reasoning=result.explanation)
 
 class ZeroShotCoTClassifier(dspy.Module):
-    def __init__(self):
+    def __init__(self, seed: int = SEED):
         super().__init__()
+        self.seed = seed
         self.predictor = dspy.Predict("""Evaluate learning opportunity through step-by-step analysis.
         Return True if content supports learning, False if it's a distraction.""")
     
@@ -124,8 +136,9 @@ class ZeroShotCoTClassifier(dspy.Module):
         return Output(classification=result.classification, reasoning=result.steps)
 
 class StructuredReasoningClassifier(dspy.Module):
-    def __init__(self):
+    def __init__(self, seed: int = SEED):
         super().__init__()
+        self.seed = seed
         self.predictor = dspy.Predict("""Analyze content using structured framework.
         Return True if content supports learning, False if it's a distraction.""")
     
@@ -146,16 +159,17 @@ class StructuredReasoningClassifier(dspy.Module):
         return Output(classification=result.classification, reasoning=result.analysis)
 
 class BrainrotOptimizer:
-    def __init__(self, train_data: pd.DataFrame, val_data: pd.DataFrame):
-        self.train_dataset = BrainrotDataset(train_data)
-        self.val_dataset = BrainrotDataset(val_data)
+    def __init__(self, train_data: pd.DataFrame, val_data: pd.DataFrame, seed: int = SEED):
+        self.seed = seed
+        self.train_dataset = BrainrotDataset(train_data, seed=seed)
+        self.val_dataset = BrainrotDataset(val_data, seed=seed)
         
         self.classifiers = {
-            # 'chain_of_thought_few_shot': ChainOfThoughtFewShotClassifier(),
-            # 'few_shot': FewShotClassifier(),
-            # 'role_prompting': RolePromptingClassifier(),
-            'zero_shot_cot': ZeroShotCoTClassifier(),
-            # 'structured_reasoning': StructuredReasoningClassifier()
+            # 'chain_of_thought_few_shot': ChainOfThoughtFewShotClassifier(seed=seed),
+            # 'few_shot': FewShotClassifier(seed=seed),
+            # 'role_prompting': RolePromptingClassifier(seed=seed),
+            'zero_shot_cot': ZeroShotCoTClassifier(seed=seed),
+            # 'structured_reasoning': StructuredReasoningClassifier(seed=seed)
         }
         self.compiled_classifiers = {}
         self.results = {}
@@ -172,6 +186,7 @@ class BrainrotOptimizer:
             max_bootstrapped_demos=8,
             max_labeled_demos=8,
             max_rounds=10,
+            seed=self.seed
         )
 
         for name, classifier in self.classifiers.items():
@@ -228,7 +243,7 @@ def main():
     settings = Settings()
     os.environ['OPENAI_API_KEY'] = settings.OPENAI_API_KEY
     # Configure DSPy with modern syntax
-    lm = dspy.OpenAI(model='gpt-4o-mini')
+    lm = dspy.OpenAI(model='gpt-4o-mini', seed=SEED)
     dspy.settings.configure(lm=lm, trace=True)
 
     # Load and preprocess the dataset
@@ -255,7 +270,7 @@ def main():
     val_data = train_val_data.iloc[train_size:]
 
     # Create and run optimizer
-    optimizer = BrainrotOptimizer(train_data, val_data)
+    optimizer = BrainrotOptimizer(train_data, val_data, seed=SEED)
     results = optimizer.optimize_classifiers()
     
     # Get best classifier

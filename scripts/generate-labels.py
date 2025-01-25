@@ -41,9 +41,10 @@ class MarkdownLabeler(metaclass=SingletonMeta):
             
             self.settings = settings
             self.model = ChatOpenAI(
-                temperature=0.7,
+                temperature=0.0,
                 model_name=settings.CRITIC_LLM,
-                api_key=settings.OPENAI_API_KEY
+                api_key=settings.OPENAI_API_KEY,
+                seed=42  # Added seed for reproducibility
             )
             
             self.prompt_template = """You are a content labeling expert. Given the following markdown content, 
